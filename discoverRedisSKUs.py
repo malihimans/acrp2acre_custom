@@ -142,8 +142,13 @@ def parse_enterprise_redis_instance(cluster, subscription_id: str, subscription_
                     instance.clustering_enabled = "Yes"
                     # EnterpriseCluster can have more shards
                     instance.shard_count = 1  # Would need to query further for exact count
-        except:
-            # If we can't fetch database info, fall back to capacity check
+        except (HttpResponseError, ResourceNotFoundError):
+            # Permission denied or database not found - expected in some scenarios
+            # Fall back to capacity-based estimation below
+            pass
+        except Exception:
+            # Unexpected error (API changes, network issues, etc.)
+            # Fall back to capacity-based estimation below
             pass
     
     # Fallback: rough estimate based on capacity
