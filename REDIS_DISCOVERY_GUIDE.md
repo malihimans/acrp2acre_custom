@@ -102,16 +102,6 @@ python discoverRedisSKUs.py --exclude-amr
 - `1` - Error (authentication failed, no subscriptions)
 - `2` - Partial success (some subscriptions failed)
 
-## Files Created
-
-```
-discoverRedisSKUs.py              # Main discovery script
-setup-service-principal.sh        # Automated SP setup
-.env.redis-discovery              # SP credentials (gitignored)
-test-redis-discovery.sh           # Test script
-RedisSKUInventory.xlsx            # Output (default name)
-```
-
 ## Support
 
 Not officially supported. For issues:
@@ -120,5 +110,3 @@ Not officially supported. For issues:
 - Verify `az account show` shows correct tenant
 
 ---
-
-**Related:** `pullAzureCacheForRedisStats.py` - For detailed metrics collection with full permissions
