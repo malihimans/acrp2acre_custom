@@ -157,7 +157,7 @@ foreach ($subscription in $subscriptions) {
     if ($subscriptionRedisInstances) {
         foreach ($ossInstance in $subscriptionRedisInstances) {
             if (-not $ossInstance.PSObject.Properties.Match("SubscriptionID")) {
-                $ossInstance | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId -Force
+                $ossInstance | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId
             }
             $redisInstances += $ossInstance
         }
@@ -167,7 +167,7 @@ foreach ($subscription in $subscriptions) {
     if ($PullAcre -and $subscriptionRedisEnterpriseInstances) {
         foreach ($enterpriseInstance in $subscriptionRedisEnterpriseInstances) {
             if (-not $enterpriseInstance.PSObject.Properties.Match("SubscriptionID")) {
-                $enterpriseInstance | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId -Force
+                $enterpriseInstance | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId
             }
             $redisInstances += $enterpriseInstance
         }
@@ -244,7 +244,13 @@ foreach ($instance in $redisInstances) {
             $subscriptionId = $instance.SubscriptionID
             if ([string]::IsNullOrEmpty($subscriptionId) -and $instance.Id) {
                 # Parse from resource ID: /subscriptions/{subscription-id}/resourceGroups/...
-                $subscriptionId = $instance.Id.Split('/')[2]
+                $idParts = $instance.Id.Split('/')
+                if ($idParts.Length -gt 2 -and $idParts[1] -eq 'subscriptions') {
+                    $subscriptionId = $idParts[2]
+                } else {
+                    Write-Warning "Unable to extract subscription ID from resource ID: $($instance.Id)"
+                    $subscriptionId = ""
+                }
             }
 
             $clusterRow = [ordered]@{ 
