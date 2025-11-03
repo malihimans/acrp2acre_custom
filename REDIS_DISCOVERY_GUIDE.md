@@ -8,7 +8,29 @@ A lightweight script to discover Azure Redis instances (OSS, Enterprise, and Man
 ✅ Minimal permissions - no metrics/monitoring access required  
 ✅ Fast execution - no performance data collection  
 ✅ Multiple output formats - Excel, CSV, or JSON  
-✅ Graceful error handling - continues on permission errors
+✅ Graceful error handling - continues on permission errors  
+✅ **Resource calculations** - Includes vCPU and memory with HA awareness
+
+## Output Information
+
+The tool provides comprehensive inventory data including:
+
+- **Instance details**: Name, region, resource group, SKU
+- **Configuration**: Clustering, shard count, Redis version
+- **High Availability**: Enabled/Disabled status
+- **Resource allocation**: 
+  - vCPU and memory **per shard/node**
+  - **Total** vCPU and memory **(all nodes including replicas)**
+- **Provisioning state** and resource IDs
+
+💡 **Resource calculation notes:**
+- **"Per Shard" columns**: Resources for a single shard/node
+- **"Total (all nodes)" columns**: Sum across ALL nodes including replicas
+- **Why count replicas?** Replicas run on separate VMs and consume:
+  - Subscription quota
+  - Billing costs
+  - Infrastructure capacity
+- **HA doubling**: When HA is enabled, total = per-node × 2 (primary + replica)
 
 ## Supported Redis Types
 
@@ -86,6 +108,15 @@ python discoverRedisSKUs.py --exclude-amr
 **When to use which:**
 1. **Discovery script** (this one) → Initial inventory, limited permissions, quick scan
 2. **Metrics script** → Detailed sizing for migration, performance analysis
+
+## Known Limitations
+
+### Redis Version Detection
+- **OSS Redis (Basic/Standard/Premium)**: ✅ Redis version detected (e.g., "6.0.14")
+- **Enterprise E-series**: ⚠️ Redis version **not available** via Azure API
+- **Azure Managed Redis (AMR)**: ✅ Redis version detected (e.g., "7.4") using preview API
+
+The Azure Management API does not expose the Redis version for Enterprise E-series instances. For AMR instances, the script uses a preview API version (`2024-09-01-preview`) to retrieve the Redis version from the database properties.
 
 ## Troubleshooting
 
