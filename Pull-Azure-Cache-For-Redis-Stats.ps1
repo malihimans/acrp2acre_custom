@@ -153,23 +153,28 @@ foreach ($subscription in $subscriptions) {
         $subscriptionRedisEnterpriseInstances = Get-AzResource -ResourceType "Microsoft.Cache/redisEnterprise" -ExpandProperties
     }
 
-    # Check if SubscriptionID exists before adding it
-    $subscriptionRedisInstances | ForEach-Object {
-        if (-not $_.PSObject.Properties.Match("SubscriptionID")) {
-            $_ | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId | Out-Null
+    # Add SubscriptionID property to OSS instances and add to main array
+    if ($subscriptionRedisInstances) {
+        foreach ($ossInstance in $subscriptionRedisInstances) {
+            if (-not $ossInstance.PSObject.Properties.Match("SubscriptionID")) {
+                $ossInstance | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId
+            }
+            $redisInstances += $ossInstance
         }
     }
 
-    $subscriptionRedisEnterpriseInstances | ForEach-Object {
-        if (-not $_.PSObject.Properties.Match("SubscriptionID")) {
-            $_ | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId | Out-Null
+    # Add SubscriptionID property to Enterprise instances and add to main array
+    if ($PullAcre -and $subscriptionRedisEnterpriseInstances) {
+        foreach ($enterpriseInstance in $subscriptionRedisEnterpriseInstances) {
+            if (-not $enterpriseInstance.PSObject.Properties.Match("SubscriptionID")) {
+                $enterpriseInstance | Add-Member -MemberType NoteProperty -Name "SubscriptionID" -Value $subscription.SubscriptionId
+            }
+            $redisInstances += $enterpriseInstance
         }
     }
 
-    if ($null -eq $subscriptionRedisInstances.Id -and $null -eq $subscriptionRedisEnterpriseInstances.Id) {
+    if (-not $subscriptionRedisInstances -and -not $subscriptionRedisEnterpriseInstances) {
         Write-Host "No Redis Instances found in subscription: $($subscription.Id)"
-    } else {
-        $redisInstances += ($subscriptionRedisInstances + $subscriptionRedisEnterpriseInstances)
     }
 }
 
@@ -235,8 +240,21 @@ foreach ($instance in $redisInstances) {
             $usedMemory = ((Get-Max-Metric $instance.Id "usedmemory$($_)") / 1024 / 1024).ToString("F2") # Convert bytes to megabytes
             $connectedClients = Get-Max-Metric $instance.Id "connectedclients$($_)"
 
+            # Extract subscription ID from resource ID if SubscriptionID property is not set
+            $subscriptionId = $instance.SubscriptionID
+            if ([string]::IsNullOrEmpty($subscriptionId) -and $instance.Id) {
+                # Parse from resource ID: /subscriptions/{subscription-id}/resourceGroups/...
+                $idParts = $instance.Id.Split('/')
+                if ($idParts.Length -gt 2 -and $idParts[1] -eq 'subscriptions') {
+                    $subscriptionId = $idParts[2]
+                } else {
+                    Write-Warning "Unable to extract subscription ID from resource ID: $($instance.Id)"
+                    $subscriptionId = ""
+                }
+            }
+
             $clusterRow = [ordered]@{ 
-                "Subscription ID" = $instance.SubscriptionID; 
+                "Subscription ID" = $subscriptionId; 
                 "Resource Group" = $extendedInfo.ResourceGroupName;
                 "Region" = $instance.Location;
                 "DB Name" = $instance.Name;
