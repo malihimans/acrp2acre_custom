@@ -20,6 +20,7 @@ Key Features:
 from azure.identity import DefaultAzureCredential, AzureCliCredential
 from azure.mgmt.redis import RedisManagementClient
 from azure.mgmt.redisenterprise import RedisEnterpriseManagementClient
+from azure.mgmt.resource import ResourceManagementClient
 from azure.mgmt.subscription import SubscriptionClient
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 import pandas as pd
@@ -29,6 +30,95 @@ import sys
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 import json
+
+# SKU Resource Mappings (vCPU and Memory per node)
+# Source: https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/
+
+# OSS Redis (Basic/Standard/Premium) - Memory in GB
+OSS_REDIS_RESOURCES = {
+    # Basic tier (no HA)
+    'C0': {'vcpu': 0.5, 'memory_gb': 0.25},
+    'C1': {'vcpu': 1, 'memory_gb': 1},
+    'C2': {'vcpu': 2, 'memory_gb': 2.5},
+    'C3': {'vcpu': 4, 'memory_gb': 6},
+    'C4': {'vcpu': 2, 'memory_gb': 13},
+    'C5': {'vcpu': 4, 'memory_gb': 26},
+    'C6': {'vcpu': 8, 'memory_gb': 53},
+    # Premium tier
+    'P1': {'vcpu': 2, 'memory_gb': 6},
+    'P2': {'vcpu': 4, 'memory_gb': 13},
+    'P3': {'vcpu': 4, 'memory_gb': 26},
+    'P4': {'vcpu': 8, 'memory_gb': 53},
+    'P5': {'vcpu': 16, 'memory_gb': 120},
+}
+
+# Enterprise E-series - per capacity unit
+ENTERPRISE_RESOURCES = {
+    'Enterprise_E1': {'vcpu': 2, 'memory_gb': 12},
+    'Enterprise_E5': {'vcpu': 4, 'memory_gb': 25},
+    'Enterprise_E10': {'vcpu': 8, 'memory_gb': 50},
+    'Enterprise_E20': {'vcpu': 16, 'memory_gb': 100},
+    'Enterprise_E50': {'vcpu': 32, 'memory_gb': 250},
+    'Enterprise_E100': {'vcpu': 64, 'memory_gb': 500},
+    'Enterprise_E200': {'vcpu': 128, 'memory_gb': 1000},
+    'Enterprise_E400': {'vcpu': 256, 'memory_gb': 2000},
+}
+
+# Azure Managed Redis (AMR) - per node
+AMR_RESOURCES = {
+    # Balanced tier
+    'Balanced_B0': {'vcpu': 2, 'memory_gb': 1},
+    'Balanced_B1': {'vcpu': 2, 'memory_gb': 3},
+    'Balanced_B3': {'vcpu': 4, 'memory_gb': 9},
+    'Balanced_B5': {'vcpu': 8, 'memory_gb': 15},
+    'Balanced_B10': {'vcpu': 8, 'memory_gb': 30},
+    'Balanced_B20': {'vcpu': 16, 'memory_gb': 60},
+    'Balanced_B50': {'vcpu': 32, 'memory_gb': 150},
+    'Balanced_B100': {'vcpu': 64, 'memory_gb': 300},
+    'Balanced_B150': {'vcpu': 96, 'memory_gb': 450},
+    'Balanced_B250': {'vcpu': 128, 'memory_gb': 750},
+    'Balanced_B350': {'vcpu': 192, 'memory_gb': 1050},
+    'Balanced_B500': {'vcpu': 256, 'memory_gb': 1500},
+    'Balanced_B700': {'vcpu': 320, 'memory_gb': 2100},
+    'Balanced_B1000': {'vcpu': 448, 'memory_gb': 3000},
+    # Memory Optimized tier
+    'MemoryOptimized_M10': {'vcpu': 8, 'memory_gb': 30},
+    'MemoryOptimized_M20': {'vcpu': 16, 'memory_gb': 60},
+    'MemoryOptimized_M50': {'vcpu': 32, 'memory_gb': 150},
+    'MemoryOptimized_M100': {'vcpu': 64, 'memory_gb': 300},
+    'MemoryOptimized_M150': {'vcpu': 96, 'memory_gb': 450},
+    'MemoryOptimized_M250': {'vcpu': 128, 'memory_gb': 750},
+    'MemoryOptimized_M350': {'vcpu': 192, 'memory_gb': 1050},
+    'MemoryOptimized_M500': {'vcpu': 256, 'memory_gb': 1500},
+    'MemoryOptimized_M700': {'vcpu': 320, 'memory_gb': 2100},
+    'MemoryOptimized_M1000': {'vcpu': 448, 'memory_gb': 3000},
+    'MemoryOptimized_M1500': {'vcpu': 640, 'memory_gb': 4500},
+    'MemoryOptimized_M2000': {'vcpu': 896, 'memory_gb': 6000},
+    # Compute Optimized tier
+    'ComputeOptimized_X3': {'vcpu': 4, 'memory_gb': 9},
+    'ComputeOptimized_X5': {'vcpu': 8, 'memory_gb': 15},
+    'ComputeOptimized_X10': {'vcpu': 8, 'memory_gb': 30},
+    'ComputeOptimized_X20': {'vcpu': 16, 'memory_gb': 60},
+    'ComputeOptimized_X50': {'vcpu': 32, 'memory_gb': 150},
+    'ComputeOptimized_X100': {'vcpu': 64, 'memory_gb': 300},
+    'ComputeOptimized_X150': {'vcpu': 96, 'memory_gb': 450},
+    'ComputeOptimized_X250': {'vcpu': 128, 'memory_gb': 750},
+    'ComputeOptimized_X350': {'vcpu': 192, 'memory_gb': 1050},
+    'ComputeOptimized_X500': {'vcpu': 256, 'memory_gb': 1500},
+    'ComputeOptimized_X700': {'vcpu': 320, 'memory_gb': 2100},
+    # Flash Optimized tier
+    'FlashOptimized_A250': {'vcpu': 32, 'memory_gb': 250},
+    'FlashOptimized_A500': {'vcpu': 64, 'memory_gb': 500},
+    'FlashOptimized_A700': {'vcpu': 96, 'memory_gb': 700},
+    'FlashOptimized_A1000': {'vcpu': 128, 'memory_gb': 1000},
+    'FlashOptimized_A1500': {'vcpu': 192, 'memory_gb': 1500},
+    'FlashOptimized_A2000': {'vcpu': 256, 'memory_gb': 2000},
+    'FlashOptimized_A4500': {'vcpu': 512, 'memory_gb': 4500},
+    # General Purpose tier (older)
+    'GeneralPurpose_G3': {'vcpu': 4, 'memory_gb': 9},
+    'GeneralPurpose_G5': {'vcpu': 8, 'memory_gb': 15},
+}
+
 
 
 class SubscriptionScanResult:
@@ -68,6 +158,11 @@ class RedisInstance:
         self.provisioning_state = ""
         self.redis_version = ""
         self.resource_id = ""
+        self.high_availability = ""  # "Enabled", "Disabled", "N/A"
+        self.vcpu_per_node = 0
+        self.memory_gb_per_node = 0
+        self.total_vcpu = 0
+        self.total_memory_gb = 0
         
     def to_dict(self) -> dict:
         return {
@@ -77,13 +172,18 @@ class RedisInstance:
             'Instance Name': self.name,
             'Region': self.location,
             'Redis Type': self.redis_type,
-            'SKU Family': self.sku_family,
             'SKU Name': self.sku_name,
-            'Capacity': self.sku_capacity,
+            'Redis Version': self.redis_version,
+            'High Availability': self.high_availability,
+            'vCPU per Shard': self.vcpu_per_node,
+            'Memory GB per Shard': self.memory_gb_per_node,
+            'Total vCPU (all nodes)': self.total_vcpu,
+            'Total Memory GB (all nodes)': self.total_memory_gb,
+            'Provisioning State': self.provisioning_state,
             'Clustering Enabled': self.clustering_enabled,
             'Shard Count': self.shard_count,
-            'Provisioning State': self.provisioning_state,
-            'Redis Version': self.redis_version,
+            'SKU Family': self.sku_family,
+            'Capacity': self.sku_capacity,
             'Resource ID': self.resource_id
         }
 
@@ -96,6 +196,79 @@ def get_resource_group_from_id(resource_id: str) -> str:
         return parts[rg_index]
     except (ValueError, IndexError):
         return ""
+
+
+def calculate_oss_resources(instance: RedisInstance, sku_family: str, sku_capacity: str, sku_name: str):
+    """
+    Calculate vCPU and memory for OSS Redis instances.
+    
+    Architecture notes:
+    - Basic tier: Single node (no HA)
+    - Standard/Premium: Primary + Replica on SEPARATE hosts
+    
+    Important: Replicas are on separate VMs, so:
+    - Customer pays for both nodes
+    - Both nodes consume subscription quota
+    - Total resources = resources needed for the deployment
+    
+    For migration/sizing purposes, we report total resources across all nodes.
+    """
+    # Build the SKU key (e.g., "C0", "P1")
+    sku_key = f"{sku_family}{sku_capacity}"
+    
+    if sku_key in OSS_REDIS_RESOURCES:
+        resources = OSS_REDIS_RESOURCES[sku_key]
+        instance.vcpu_per_node = resources['vcpu']
+        instance.memory_gb_per_node = resources['memory_gb']
+        
+        # Basic tier has no HA (single node), Standard/Premium have replicas on separate hosts
+        if sku_name == 'Basic':
+            instance.high_availability = "Disabled"
+            instance.total_vcpu = instance.vcpu_per_node
+            instance.total_memory_gb = instance.memory_gb_per_node
+        else:
+            # Standard and Premium have 1 replica on a separate host (2 nodes total)
+            # Total = Primary node + Replica node resources
+            instance.high_availability = "Enabled"
+            instance.total_vcpu = instance.vcpu_per_node * 2
+            instance.total_memory_gb = instance.memory_gb_per_node * 2
+
+
+def calculate_enterprise_amr_resources(instance: RedisInstance, sku_name: str, high_availability: str):
+    """
+    Calculate vCPU and memory for Enterprise and AMR instances.
+    
+    Architecture notes:
+    - Enterprise/AMR with HA: Primary + Replica on SEPARATE nodes
+    - Enterprise/AMR without HA: Single node
+    
+    Similar to OSS Standard/Premium, when HA is enabled:
+    - Replicas are on separate infrastructure
+    - Customer pays for both primary and replica
+    - Both consume subscription quota
+    
+    Total resources = sum across all nodes in the deployment.
+    """
+    # Determine which mapping to use
+    if sku_name in ENTERPRISE_RESOURCES:
+        resources = ENTERPRISE_RESOURCES[sku_name]
+    elif sku_name in AMR_RESOURCES:
+        resources = AMR_RESOURCES[sku_name]
+    else:
+        # Unknown SKU
+        return
+    
+    instance.vcpu_per_node = resources['vcpu']
+    instance.memory_gb_per_node = resources['memory_gb']
+    instance.high_availability = high_availability
+    
+    # If HA is enabled, resources are doubled (primary + replica on separate nodes)
+    if high_availability == "Enabled":
+        instance.total_vcpu = instance.vcpu_per_node * 2
+        instance.total_memory_gb = instance.memory_gb_per_node * 2
+    else:
+        instance.total_vcpu = instance.vcpu_per_node
+        instance.total_memory_gb = instance.memory_gb_per_node
 
 
 def parse_oss_redis_instance(cluster, subscription_id: str, subscription_name: str) -> RedisInstance:
@@ -113,10 +286,14 @@ def parse_oss_redis_instance(cluster, subscription_id: str, subscription_name: s
     instance.provisioning_state = cluster.provisioning_state or ""
     instance.redis_version = cluster.redis_version or ""
     instance.resource_id = cluster.id
+    
+    # Calculate vCPU and memory
+    calculate_oss_resources(instance, cluster.sku.family, str(cluster.sku.capacity), cluster.sku.name)
+    
     return instance
 
 
-def parse_enterprise_redis_instance(cluster, subscription_id: str, subscription_name: str, enterprise_client=None) -> RedisInstance:
+def parse_enterprise_redis_instance(cluster, subscription_id: str, subscription_name: str, enterprise_client=None, credential=None) -> RedisInstance:
     """Parse Azure Cache for Redis Enterprise instance"""
     instance = RedisInstance(subscription_id, subscription_name)
     instance.resource_group = get_resource_group_from_id(cluster.id)
@@ -127,9 +304,12 @@ def parse_enterprise_redis_instance(cluster, subscription_id: str, subscription_
     instance.sku_name = cluster.sku.name
     instance.sku_capacity = str(cluster.sku.capacity) if cluster.sku.capacity else "0"
     
-    # Check database-level clustering policy
+    # Check database-level clustering policy and get Redis version
     instance.clustering_enabled = "No"
     instance.shard_count = 1
+    redis_version_from_db = None
+    database_id = None
+    
     if enterprise_client:
         try:
             rg = instance.resource_group
@@ -137,11 +317,15 @@ def parse_enterprise_redis_instance(cluster, subscription_id: str, subscription_
             if databases:
                 # Check first database for clustering
                 db = databases[0]
+                database_id = db.id  # Save for later Redis version query
                 clustering_policy = getattr(db, 'clustering_policy', None)
                 if clustering_policy and clustering_policy in ['OSSCluster', 'EnterpriseCluster']:
                     instance.clustering_enabled = "Yes"
                     # EnterpriseCluster can have more shards
                     instance.shard_count = 1  # Would need to query further for exact count
+                
+                # Try to get Redis version from database using standard SDK
+                redis_version_from_db = getattr(db, 'redis_version', None)
         except (HttpResponseError, ResourceNotFoundError):
             # Permission denied or database not found - expected in some scenarios
             # Fall back to capacity-based estimation below
@@ -156,7 +340,49 @@ def parse_enterprise_redis_instance(cluster, subscription_id: str, subscription_
         instance.clustering_enabled = "Possibly"
     
     instance.provisioning_state = cluster.provisioning_state or ""
-    instance.redis_version = getattr(cluster, 'redis_version', '')
+    
+    # Get Redis version
+    cluster_redis_version = getattr(cluster, 'redis_version', None)
+    
+    if cluster_redis_version:
+        # OSS Redis or older Enterprise instances that have version info
+        instance.redis_version = cluster_redis_version
+    elif redis_version_from_db:
+        # Database-level version from standard SDK
+        instance.redis_version = redis_version_from_db
+    elif credential and database_id:
+        # For AMR instances, use newer API version to get Redis version and HA status
+        try:
+            resource_client = ResourceManagementClient(credential, subscription_id)
+            # Use preview API version that exposes redisVersion property
+            database_resource = resource_client.resources.get_by_id(database_id, '2024-09-01-preview')
+            if database_resource.properties and 'redisVersion' in database_resource.properties:
+                instance.redis_version = database_resource.properties['redisVersion']
+            else:
+                instance.redis_version = ''
+        except Exception:
+            # If newer API fails, fall back to empty string
+            instance.redis_version = ''
+    else:
+        # No version available
+        instance.redis_version = ''
+    
+    # Get HA status from cluster using Resource API
+    high_availability = "Unknown"
+    if credential:
+        try:
+            resource_client = ResourceManagementClient(credential, subscription_id)
+            cluster_resource = resource_client.resources.get_by_id(cluster.id, '2024-09-01-preview')
+            if cluster_resource.properties and 'highAvailability' in cluster_resource.properties:
+                ha_value = cluster_resource.properties['highAvailability']
+                high_availability = "Enabled" if ha_value == "Enabled" else "Disabled"
+        except Exception:
+            # If we can't get HA status, assume it's enabled for Enterprise/AMR
+            high_availability = "Enabled"
+    
+    # Calculate vCPU and memory
+    calculate_enterprise_amr_resources(instance, instance.sku_name, high_availability)
+    
     instance.resource_id = cluster.id
     return instance
 
@@ -208,7 +434,7 @@ def scan_subscription(credential, subscription_id: str, subscription_name: str,
         # Filter AMR instances if needed
         for cluster in enterprise_clusters:
             if include_amr or not is_amr_sku(cluster.sku.name):
-                instance = parse_enterprise_redis_instance(cluster, subscription_id, subscription_name, enterprise_client)
+                instance = parse_enterprise_redis_instance(cluster, subscription_id, subscription_name, enterprise_client, credential)
                 if is_amr_sku(cluster.sku.name):
                     instance.redis_type = "Managed"
                 instances.append(instance)
