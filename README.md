@@ -12,7 +12,7 @@ Python 3.8 or greater is required.
 
 ```
 # Clone:
-git clone https://github.com/Redislabs-Solution-Architects/acrp2acre.git
+git clone https://github.com/malihimans/acrp2acre_custom.git
 
 # Prepare virtualenv:
 cd acrp2acre
@@ -37,7 +37,7 @@ The output will be in a file called `AzureStats.xlsx` in the current directory.
 ### Running from source (Linux)
 ```
 # Clone:
-git clone https://github.com/Redislabs-Solution-Architects/acrp2acre.git
+git clone https://github.com/malihimans/acrp2acre_custom.git
 
 # Prepare virtualenv:
 cd acrp2acre
